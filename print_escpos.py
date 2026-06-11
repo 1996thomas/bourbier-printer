@@ -189,6 +189,46 @@ def get_backend() -> PrinterBackend:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Image adjustments
+# ═══════════════════════════════════════════════════════════════════
+
+def _adjust(img: Image.Image) -> Image.Image:
+    """
+    Apply quality controls from environment variables.
+
+    PRINT_BRIGHTNESS  float  default 1.0  — 0.5 = darker  2.0 = lighter
+    PRINT_CONTRAST    float  default 1.0  — 0.5 = flat     2.0 = punchy
+    PRINT_SHARPNESS   float  default 1.0  — 0.0 = blurred  2.0 = sharp edges
+    PRINT_MULTITONE   0|1    default 1    — 1 = keep 8-bit gray (driver dithers)
+                                            0 = pre-convert to 1-bit (Floyd-Steinberg)
+
+    All values are applied before the image is handed to the backend.
+    Tune them in bourbier-printer/.env without touching any code.
+    """
+    from PIL import ImageEnhance
+
+    brightness = float(os.environ.get("PRINT_BRIGHTNESS", "1.0"))
+    contrast   = float(os.environ.get("PRINT_CONTRAST",   "1.0"))
+    sharpness  = float(os.environ.get("PRINT_SHARPNESS",  "1.0"))
+    multitone  = os.environ.get("PRINT_MULTITONE", "1") != "0"
+
+    _log(f"  brightness={brightness}  contrast={contrast}  sharpness={sharpness}  multitone={'on' if multitone else 'off'}")
+
+    if brightness != 1.0:
+        img = ImageEnhance.Brightness(img).enhance(brightness)
+    if contrast != 1.0:
+        img = ImageEnhance.Contrast(img).enhance(contrast)
+    if sharpness != 1.0:
+        img = ImageEnhance.Sharpness(img).enhance(sharpness)
+
+    if not multitone:
+        # Pre-dither to 1-bit (Floyd-Steinberg via Pillow), then back to L
+        img = img.convert("1").convert("L")
+
+    return img
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Entry point
 # ═══════════════════════════════════════════════════════════════════
 
@@ -206,6 +246,7 @@ def main() -> None:
 
     img = Image.open(img_path).convert("L")
     _log(f"  image   : {img.width} × {img.height} px")
+    img = _adjust(img)
 
     # 1-bit debug: white bands here → dithering issue; absent → USB/transport issue
     debug = img_path.replace(".png", "_1bit.png")
